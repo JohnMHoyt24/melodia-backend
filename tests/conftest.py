@@ -13,23 +13,30 @@ from app.main import app
 
 
 @pytest.fixture
-def client():
+def db_session():
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(engine)
 
+    session = TestSession()
+
     def override_get_db():
-        db = TestSession()
         try:
-            yield db
+            yield session
         finally:
-            db.close()
+            pass
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        yield TestClient(app)
+        yield session
     finally:
         app.dependency_overrides.clear()
+        session.close()
         Base.metadata.drop_all(engine)
+
+
+@pytest.fixture
+def client(db_session):
+    yield TestClient(app)
