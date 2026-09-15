@@ -29,3 +29,10 @@ class ArtistIngestRequest(BaseModel):
 class ArtistDetail(ArtistRead):
     genres: list[GenreRead] = []
     albums: list[AlbumRead] = []
+    characteristics: dict[str, float] | None = None
+
+
+class SimilarArtist(BaseModel):
+    id: uuid.UUID
+    name: str
+    similarity: float

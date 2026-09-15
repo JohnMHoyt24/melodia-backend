@@ -2,6 +2,7 @@ fastapi[standard]
 sqlalchemy>=2.0
 alembic
 psycopg[binary]
+pgvector
 pydantic-settings
 httpx
 pytest

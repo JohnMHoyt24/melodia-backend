@@ -61,3 +61,85 @@ def test_ingest_artist_not_found(client, monkeypatch):
     response = client.post("/artists/ingest", json={"name": "Nonexistent Band"})
 
     assert response.status_code == 404
+
+
+def test_analyze_artist(client, db_session, monkeypatch):
+    from app.api import artists as artists_api
+    from app.models import Artist
+
+    artist = Artist(name="Boards of Canada")
+    db_session.add(artist)
+    db_session.commit()
+
+    def fake_analyze_artist(db, artist):
+        artist.characteristics = {"energy": 0.5}
+        db.commit()
+        db.refresh(artist)
+        return artist
+
+    monkeypatch.setattr(artists_api, "analyze_artist", fake_analyze_artist)
+
+    response = client.post(f"/artists/{artist.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["characteristics"] == {"energy": 0.5}
+
+
+def test_analyze_artist_not_found(client):
+    response = client.post("/artists/00000000-0000-0000-0000-000000000000/analyze")
+    assert response.status_code == 404
+
+
+def test_analyze_artist_gemini_not_configured(client, db_session, monkeypatch):
+    from app.api import artists as artists_api
+    from app.models import Artist
+    from app.services.gemini import GeminiNotConfigured
+
+    artist = Artist(name="Boards of Canada")
+    db_session.add(artist)
+    db_session.commit()
+
+    def fake_analyze_artist(db, artist):
+        raise GeminiNotConfigured("GEMINI_API_KEY is not set")
+
+    monkeypatch.setattr(artists_api, "analyze_artist", fake_analyze_artist)
+
+    response = client.post(f"/artists/{artist.id}/analyze")
+
+    assert response.status_code == 503
+
+
+def test_similar_artists(client, db_session, monkeypatch):
+    from app.api import artists as artists_api
+    from app.models import Artist
+
+    artist = Artist(name="Boards of Canada")
+    other = Artist(name="Autechre")
+    db_session.add_all([artist, other])
+    db_session.commit()
+
+    monkeypatch.setattr(
+        artists_api, "find_similar_artists", lambda db, a, limit=10: [(other, 0.92)]
+    )
+
+    response = client.get(f"/artists/{artist.id}/similar")
+
+    assert response.status_code == 200
+    assert response.json() == [{"id": str(other.id), "name": "Autechre", "similarity": 0.92}]
+
+
+def test_similar_artists_not_analyzed(client, db_session):
+    from app.models import Artist
+
+    artist = Artist(name="Boards of Canada")
+    db_session.add(artist)
+    db_session.commit()
+
+    response = client.get(f"/artists/{artist.id}/similar")
+
+    assert response.status_code == 409
+
+
+def test_similar_artists_not_found(client):
+    response = client.get("/artists/00000000-0000-0000-0000-000000000000/similar")
+    assert response.status_code == 404
