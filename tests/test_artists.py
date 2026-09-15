@@ -109,6 +109,89 @@ def test_analyze_artist_gemini_not_configured(client, db_session, monkeypatch):
     assert response.status_code == 503
 
 
+def test_load_albums(client, db_session, monkeypatch):
+    from app.api import artists as artists_api
+    from app.models import Artist, Album
+
+    artist = Artist(name="Boards of Canada", musicbrainz_id="mbid-1")
+    db_session.add(artist)
+    db_session.commit()
+
+    def fake_ingest_album_shells(db, artist, limit=10):
+        album = Album(artist_id=artist.id, title="Geogaddi", musicbrainz_id="mbid-album-1")
+        db.add(album)
+        db.commit()
+        return [album]
+
+    monkeypatch.setattr(artists_api, "ingest_album_shells", fake_ingest_album_shells)
+
+    response = client.post(f"/artists/{artist.id}/albums")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["albums"]) == 1
+    assert body["albums"][0]["title"] == "Geogaddi"
+    assert body["albums"][0]["tracks"] == []
+
+
+def test_load_albums_artist_not_found(client):
+    response = client.post("/artists/00000000-0000-0000-0000-000000000000/albums")
+    assert response.status_code == 404
+
+
+def test_load_albums_no_musicbrainz_link(client, db_session, monkeypatch):
+    from app.api import artists as artists_api
+    from app.models import Artist
+    from app.services.ingest import ArtistNotFound
+
+    artist = Artist(name="No MBID Artist")
+    db_session.add(artist)
+    db_session.commit()
+
+    def fake_ingest_album_shells(db, artist, limit=10):
+        raise ArtistNotFound(f"{artist.name!r} has no MusicBrainz link")
+
+    monkeypatch.setattr(artists_api, "ingest_album_shells", fake_ingest_album_shells)
+
+    response = client.post(f"/artists/{artist.id}/albums")
+
+    assert response.status_code == 409
+
+
+def test_load_tracks(client, db_session, monkeypatch):
+    from app.api import albums as albums_api
+    from app.models import Artist, Album, Track
+
+    artist = Artist(name="Boards of Canada", musicbrainz_id="mbid-1")
+    db_session.add(artist)
+    db_session.commit()
+    album = Album(artist_id=artist.id, title="Geogaddi", musicbrainz_id="mbid-album-1")
+    db_session.add(album)
+    db_session.commit()
+
+    def fake_ingest_album_tracks(db, album):
+        track = Track(album_id=album.id, title="1969", track_number=1)
+        db.add(track)
+        db.commit()
+        db.refresh(album)
+        return album
+
+    monkeypatch.setattr(albums_api, "ingest_album_tracks", fake_ingest_album_tracks)
+
+    response = client.post(f"/albums/{album.id}/tracks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tracks"] == [
+        {"id": body["tracks"][0]["id"], "title": "1969", "track_number": 1, "length_ms": None}
+    ]
+
+
+def test_load_tracks_album_not_found(client):
+    response = client.post("/albums/00000000-0000-0000-0000-000000000000/tracks")
+    assert response.status_code == 404
+
+
 def test_similar_artists(client, db_session, monkeypatch):
     from app.api import artists as artists_api
     from app.models import Artist

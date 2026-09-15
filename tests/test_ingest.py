@@ -136,3 +136,50 @@ def test_ingest_artist_cache_miss_when_albums_needed_but_not_yet_fetched(
     assert len(search_calls) == 2
     assert db_session.query(Album).count() == 1
     assert second.albums[0].title == "Music Has the Right to Children"
+
+
+def test_ingest_album_shells_skips_tracks(db_session, monkeypatch):
+    track_calls = []
+    monkeypatch.setattr(
+        musicbrainz,
+        "get_release_group_tracks",
+        lambda release_group_mbid: track_calls.append(1) or [],
+    )
+
+    artist = ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+    albums = ingest.ingest_album_shells(db_session, artist)
+
+    assert track_calls == []  # get_release_group_tracks never called
+    assert len(albums) == 1
+    assert albums[0].title == "Music Has the Right to Children"
+    assert albums[0].tracks == []
+
+
+def test_ingest_album_shells_requires_musicbrainz_id(db_session):
+    artist = Artist(name="No MBID Artist")
+    db_session.add(artist)
+    db_session.commit()
+
+    with pytest.raises(ingest.ArtistNotFound):
+        ingest.ingest_album_shells(db_session, artist)
+
+
+def test_ingest_album_tracks_fetches_once(db_session, monkeypatch):
+    track_calls = []
+    monkeypatch.setattr(
+        musicbrainz,
+        "get_release_group_tracks",
+        lambda release_group_mbid: track_calls.append(1)
+        or [{"title": "Wildlife Analysis", "recording": {"id": "mbid-track-1"}, "length": 111000}],
+    )
+
+    artist = ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+    album = ingest.ingest_album_shells(db_session, artist)[0]
+
+    ingest.ingest_album_tracks(db_session, album)
+    assert len(track_calls) == 1
+    assert album.tracks[0].title == "Wildlife Analysis"
+
+    # Second call for the same album should be a no-op (already has tracks).
+    ingest.ingest_album_tracks(db_session, album)
+    assert len(track_calls) == 1

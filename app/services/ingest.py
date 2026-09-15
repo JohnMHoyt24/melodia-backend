@@ -117,3 +117,35 @@ def ingest_artist(db: Session, name: str, album_limit: int = 10) -> Artist:
     db.commit()
     db.refresh(artist)
     return artist
+
+
+def ingest_album_shells(db: Session, artist: Artist, limit: int = 10) -> list[Album]:
+    """Fetch this artist's albums (title/year/type only, no tracklists) - a single
+    MusicBrainz call no matter how many albums come back, since fetching each album's
+    tracklist is the expensive part (one throttled call per album, the dominant cost
+    in ingest_artist() above). Pair with ingest_album_tracks() per album, on demand,
+    instead of blocking on every album's tracklist before showing anything - see
+    PLAN.md for the "Load albums" latency this was written to fix.
+    """
+    if not artist.musicbrainz_id:
+        raise ArtistNotFound(f"{artist.name!r} has no MusicBrainz link")
+
+    release_groups = musicbrainz.browse_release_groups(artist.musicbrainz_id, limit=limit)
+    albums = [_sync_album(db, artist, release_group) for release_group in release_groups]
+    db.commit()
+    for album in albums:
+        db.refresh(album)
+    return albums
+
+
+def ingest_album_tracks(db: Session, album: Album) -> Album:
+    """Fetch and store one album's tracklist. Idempotent/fast on repeat - does nothing
+    if the album already has tracks."""
+    if album.tracks:
+        return album
+
+    tracks = musicbrainz.get_release_group_tracks(album.musicbrainz_id)
+    _sync_tracks(db, album, tracks)
+    db.commit()
+    db.refresh(album)
+    return album

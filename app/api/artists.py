@@ -14,7 +14,7 @@ from app.schemas.artist import (
 )
 from app.services.analyze import analyze_artist
 from app.services.gemini import GeminiNotConfigured
-from app.services.ingest import ArtistNotFound, ingest_artist
+from app.services.ingest import ArtistNotFound, ingest_album_shells, ingest_artist
 from app.services.similarity import ArtistNotAnalyzed, find_similar_artists
 
 router = APIRouter(prefix="/artists", tags=["artists"])
@@ -52,6 +52,26 @@ def get_artist(artist_id: uuid.UUID, db: Session = Depends(get_db)) -> Artist:
     artist = db.get(Artist, artist_id)
     if artist is None:
         raise HTTPException(status_code=404, detail="Artist not found")
+    return artist
+
+
+@router.post("/{artist_id}/albums", response_model=ArtistDetail)
+def load_albums(
+    artist_id: uuid.UUID, limit: int = 10, db: Session = Depends(get_db)
+) -> Artist:
+    """Fetch this artist's album list (titles/years only, no tracklists yet) - fast,
+    a single MusicBrainz call regardless of album count. Fetch each album's tracklist
+    separately via POST /albums/{album_id}/tracks, on demand, rather than blocking on
+    all of them here - see app/services/ingest.py for why.
+    """
+    artist = db.get(Artist, artist_id)
+    if artist is None:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    try:
+        ingest_album_shells(db, artist, limit=limit)
+    except ArtistNotFound as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.refresh(artist)
     return artist
 
 
