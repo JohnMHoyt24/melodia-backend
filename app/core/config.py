@@ -13,8 +13,12 @@ class Settings(BaseSettings):
     lastfm_api_key: str = ""
 
     gemini_api_key: str = ""
-    gemini_generation_model: str = "gemini-2.0-flash"
-    gemini_embedding_model: str = "text-embedding-004"
+    # gemini-flash-latest (-> gemini-3.8-flash as of writing) has a 20 requests/day free-tier
+    # cap - hit it live during Milestone 3 testing. gemini-flash-lite-latest has more free-tier
+    # headroom; reconfirm at https://ai.google.dev/gemini-api/docs/rate-limits before relying
+    # on either number.
+    gemini_generation_model: str = "gemini-flash-lite-latest"
+    gemini_embedding_model: str = "gemini-embedding-001"
 
 
 @lru_cache

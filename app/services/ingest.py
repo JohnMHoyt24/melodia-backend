@@ -78,6 +78,23 @@ def _sync_tracks(db: Session, album: Album, tracks: list[dict]) -> None:
 
 
 def ingest_artist(db: Session, name: str, album_limit: int = 10) -> Artist:
+    """`album_limit=0` skips album/track ingestion entirely (only the artist search +
+    Last.fm tags), cutting MusicBrainz calls for this artist from up to 1 + 2*N (N
+    albums) down to 1. Used by the recommend flow (app/services/recommend.py), where
+    5 suggested artists at the full album_limit each meant 30-90s of sequential,
+    throttled MusicBrainz calls (~1 req/sec) before anything could be shown - see
+    PLAN.md. Full ingestion still happens on demand via POST /artists/ingest.
+
+    Also skips all external calls entirely if an artist with this name is already in
+    our DB and already satisfies what's being asked for (has albums, or none were
+    requested) - this is what makes repeat recommendations of a popular artist across
+    different prompts fast: the "organic infinite catalog" (see PLAN.md, Milestone 4)
+    only pays the MusicBrainz/Last.fm cost once per artist, not once per mention.
+    """
+    cached = db.query(Artist).filter(Artist.name.ilike(name)).one_or_none()
+    if cached is not None and (album_limit == 0 or len(cached.albums) > 0):
+        return cached
+
     mb_artist = musicbrainz.search_artist(name)
     if mb_artist is None:
         raise ArtistNotFound(f"No MusicBrainz artist found for {name!r}")
@@ -90,11 +107,12 @@ def ingest_artist(db: Session, name: str, album_limit: int = 10) -> Artist:
         tags = []
     _sync_genres(db, artist, tags)
 
-    release_groups = musicbrainz.browse_release_groups(mb_artist["id"], limit=album_limit)
-    for release_group in release_groups:
-        album = _sync_album(db, artist, release_group)
-        tracks = musicbrainz.get_release_group_tracks(release_group["id"])
-        _sync_tracks(db, album, tracks)
+    if album_limit > 0:
+        release_groups = musicbrainz.browse_release_groups(mb_artist["id"], limit=album_limit)
+        for release_group in release_groups:
+            album = _sync_album(db, artist, release_group)
+            tracks = musicbrainz.get_release_group_tracks(release_group["id"])
+            _sync_tracks(db, album, tracks)
 
     db.commit()
     db.refresh(artist)

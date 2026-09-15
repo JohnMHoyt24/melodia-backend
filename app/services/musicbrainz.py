@@ -27,22 +27,29 @@ def _throttle() -> None:
 
 
 def _get(path: str, params: dict[str, Any]) -> dict[str, Any]:
-    """GET with MusicBrainz's rate-limit throttle and a retry for transient 503s.
+    """GET with MusicBrainz's rate-limit throttle and a retry for transient 503s and
+    read timeouts.
 
     In practice MusicBrainz's anonymous-tier search/browse endpoints return
-    "503 Service Temporarily Unavailable" fairly often even at 1 req/sec - this isn't
-    an edge case, it's routine, so it's handled here rather than left to callers.
+    "503 Service Temporarily Unavailable" fairly often even at 1 req/sec, and
+    sometimes just sit past a timeout with no response at all - neither is a rare edge
+    case, so both are handled here rather than left to callers.
     """
     settings = get_settings()
-    last_error: httpx.HTTPStatusError | None = None
+    last_error: Exception | None = None
     for attempt in range(_MAX_RETRIES):
         _throttle()
-        response = httpx.get(
-            f"{BASE_URL}/{path}",
-            params={**params, "fmt": "json"},
-            headers={"User-Agent": settings.musicbrainz_user_agent},
-            timeout=10.0,
-        )
+        try:
+            response = httpx.get(
+                f"{BASE_URL}/{path}",
+                params={**params, "fmt": "json"},
+                headers={"User-Agent": settings.musicbrainz_user_agent},
+                timeout=15.0,
+            )
+        except httpx.TimeoutException as exc:
+            last_error = exc
+            time.sleep(2**attempt)
+            continue
         if response.status_code == 503:
             last_error = httpx.HTTPStatusError(
                 "503 Service Temporarily Unavailable",

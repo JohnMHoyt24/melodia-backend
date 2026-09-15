@@ -109,3 +109,20 @@ def test_get_gives_up_after_max_retries(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         musicbrainz.search_artist("Boards of Canada")
+
+
+@respx.mock
+def test_get_retries_on_read_timeout_then_succeeds(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(musicbrainz.time, "sleep", lambda seconds: None)
+    route = respx.get(f"{musicbrainz.BASE_URL}/artist")
+    route.side_effect = [
+        httpx.ReadTimeout("timed out"),
+        Response(200, json={"artists": [{"id": "abc-123", "name": "Boards of Canada"}]}),
+    ]
+
+    result = musicbrainz.search_artist("Boards of Canada")
+
+    assert result == {"id": "abc-123", "name": "Boards of Canada"}
+    assert route.call_count == 2

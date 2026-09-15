@@ -79,3 +79,60 @@ def test_ingest_artist_without_lastfm_configured(monkeypatch, db_session):
     artist = ingest.ingest_artist(db_session, "Boards of Canada")
 
     assert artist.genres == []
+
+
+def test_ingest_artist_album_limit_zero_skips_albums(db_session, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        musicbrainz,
+        "browse_release_groups",
+        lambda artist_mbid, limit=10: calls.append(1) or [],
+    )
+
+    artist = ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+
+    assert calls == []  # browse_release_groups never called
+    assert {g.name for g in artist.genres} == {"idm", "ambient"}  # tags still fetched
+    assert db_session.query(Album).count() == 0
+
+
+def test_ingest_artist_cache_hit_skips_external_calls_when_no_albums_needed(
+    db_session, monkeypatch
+):
+    search_calls = []
+    monkeypatch.setattr(
+        musicbrainz,
+        "search_artist",
+        lambda name: search_calls.append(1)
+        or {"id": "mbid-artist-1", "name": "Boards of Canada"},
+    )
+
+    ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+    assert len(search_calls) == 1
+
+    second = ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+    assert len(search_calls) == 1  # no second MusicBrainz call - served from cache
+    assert second.musicbrainz_id == "mbid-artist-1"
+
+
+def test_ingest_artist_cache_miss_when_albums_needed_but_not_yet_fetched(
+    db_session, monkeypatch
+):
+    search_calls = []
+    monkeypatch.setattr(
+        musicbrainz,
+        "search_artist",
+        lambda name: search_calls.append(1)
+        or {"id": "mbid-artist-1", "name": "Boards of Canada"},
+    )
+
+    ingest.ingest_artist(db_session, "Boards of Canada", album_limit=0)
+    assert len(search_calls) == 1
+
+    # Requesting albums this time should fall through to a real ingest, not the cache,
+    # since the cached row has no albums yet (this is what the frontend's "Load
+    # albums" button on ArtistPage relies on).
+    second = ingest.ingest_artist(db_session, "Boards of Canada", album_limit=10)
+    assert len(search_calls) == 2
+    assert db_session.query(Album).count() == 1
+    assert second.albums[0].title == "Music Has the Right to Children"

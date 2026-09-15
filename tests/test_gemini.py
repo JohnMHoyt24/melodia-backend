@@ -11,8 +11,8 @@ from app.services import gemini
 def _settings(**overrides):
     defaults = dict(
         gemini_api_key="test-key",
-        gemini_generation_model="gemini-2.0-flash",
-        gemini_embedding_model="text-embedding-004",
+        gemini_generation_model="gemini-flash-latest",
+        gemini_embedding_model="gemini-embedding-001",
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -36,7 +36,7 @@ def test_classify_characteristics_parses_structured_output(monkeypatch):
         "danceability": 0.2,
         "complexity": 0.7,
     }
-    respx.post(f"{gemini.BASE_URL}/models/gemini-2.0-flash:generateContent").mock(
+    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
         return_value=Response(
             200,
             json={
@@ -55,7 +55,7 @@ def test_classify_characteristics_parses_structured_output(monkeypatch):
 @respx.mock
 def test_classify_characteristics_clamps_and_fills_missing(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", _settings)
-    respx.post(f"{gemini.BASE_URL}/models/gemini-2.0-flash:generateContent").mock(
+    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
         return_value=Response(
             200,
             json={
@@ -74,9 +74,51 @@ def test_classify_characteristics_clamps_and_fills_missing(monkeypatch):
 
 
 @respx.mock
+def test_suggest_artists_parses_array(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    suggestions = [
+        {"name": "Yo La Tengo", "reason": "Jangly guitars with a similar dreamy feel."},
+        {"name": "The Feelies", "reason": "Chiming guitar tones in a similar vein."},
+    ]
+    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
+        return_value=Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(suggestions)}]}}]},
+        )
+    )
+
+    result = gemini.suggest_artists("like Dinosaur Jr but janglier", count=5)
+
+    assert result == suggestions
+
+
+@respx.mock
+def test_suggest_artists_truncates_to_count(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    suggestions = [{"name": f"Artist {i}", "reason": "reason"} for i in range(5)]
+    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
+        return_value=Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(suggestions)}]}}]},
+        )
+    )
+
+    result = gemini.suggest_artists("anything", count=2)
+
+    assert len(result) == 2
+
+
+def test_suggest_artists_without_api_key_raises(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", lambda: _settings(gemini_api_key=""))
+
+    with pytest.raises(gemini.GeminiNotConfigured):
+        gemini.suggest_artists("anything")
+
+
+@respx.mock
 def test_embed_text_returns_vector(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", _settings)
-    respx.post(f"{gemini.BASE_URL}/models/text-embedding-004:embedContent").mock(
+    respx.post(f"{gemini.BASE_URL}/models/gemini-embedding-001:embedContent").mock(
         return_value=Response(200, json={"embedding": {"values": [0.1, 0.2, 0.3]}})
     )
 
@@ -88,3 +130,63 @@ def test_embed_text_without_api_key_raises(monkeypatch):
 
     with pytest.raises(gemini.GeminiNotConfigured):
         gemini.embed_text("some text")
+
+
+@respx.mock
+def test_retries_on_503_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    monkeypatch.setattr(gemini.time, "sleep", lambda seconds: None)
+    route = respx.post(f"{gemini.BASE_URL}/models/gemini-embedding-001:embedContent")
+    route.side_effect = [
+        Response(503, json={"error": {"message": "high demand"}}),
+        Response(200, json={"embedding": {"values": [0.1, 0.2]}}),
+    ]
+
+    assert gemini.embed_text("some text") == [0.1, 0.2]
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_gives_up_after_max_retries(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    monkeypatch.setattr(gemini.time, "sleep", lambda seconds: None)
+    respx.post(f"{gemini.BASE_URL}/models/gemini-embedding-001:embedContent").mock(
+        return_value=Response(503, json={"error": {"message": "high demand"}})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        gemini.embed_text("some text")
+
+
+@respx.mock
+def test_retries_on_read_timeout_then_succeeds(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    monkeypatch.setattr(gemini.time, "sleep", lambda seconds: None)
+    route = respx.post(f"{gemini.BASE_URL}/models/gemini-embedding-001:embedContent")
+    route.side_effect = [
+        httpx.ReadTimeout("timed out"),
+        Response(200, json={"embedding": {"values": [0.1, 0.2]}}),
+    ]
+
+    assert gemini.embed_text("some text") == [0.1, 0.2]
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_retries_on_429_honoring_retry_after(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    sleeps = []
+    monkeypatch.setattr(gemini.time, "sleep", lambda seconds: sleeps.append(seconds))
+    route = respx.post(f"{gemini.BASE_URL}/models/gemini-embedding-001:embedContent")
+    route.side_effect = [
+        Response(429, headers={"retry-after": "3"}, json={"error": {"message": "quota"}}),
+        Response(200, json={"embedding": {"values": [0.1, 0.2]}}),
+    ]
+
+    assert gemini.embed_text("some text") == [0.1, 0.2]
+    assert route.call_count == 2
+    assert sleeps == [3.0]
