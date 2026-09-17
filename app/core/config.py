@@ -12,10 +12,11 @@ class Settings(BaseSettings):
     musicbrainz_user_agent: str = "Melodia/0.1 (https://github.com/melodia-app)"
     lastfm_api_key: str = ""
 
-    # From Supabase dashboard -> Settings -> API -> JWT Secret. Used to verify the
-    # access tokens supabase-js issues on the frontend, without a network round-trip
-    # per request.
-    supabase_jwt_secret: str = ""
+    # Supabase project URL (Settings -> API). Used to fetch the project's public JWKS
+    # to verify access tokens supabase-js issues on the frontend - Supabase signs them
+    # with a per-project asymmetric key (ES256), not a shared secret, so verification
+    # needs the public key, not a secret.
+    supabase_url: str = ""
 
     gemini_api_key: str = ""
     # gemini-flash-latest (-> gemini-3.8-flash as of writing) has a 20 requests/day free-tier

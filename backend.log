@@ -1,0 +1,35 @@
+INFO:     Started server process [13164]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:49233 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54318 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58916 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54318 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54318 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58916 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63799 - "POST /chat/threads HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61503 - "OPTIONS /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63799 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61503 - "GET /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61503 - "OPTIONS /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63799 - "POST /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61503 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61622 - "GET /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61503 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53135 - "GET /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53135 - "POST /chat/threads HTTP/1.1" 201 Created
+INFO:     127.0.0.1:61813 - "OPTIONS /chat/threads/7ce20ec4-82bb-405e-ad8a-00dc171dc822 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53135 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53135 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53135 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63473 - "GET /chat/threads/89c53ebe-e714-42f6-801f-aea8e3a4c6c4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55242 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54552 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55242 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55242 - "OPTIONS /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54552 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52595 - "POST /chat/threads HTTP/1.1" 201 Created
+INFO:     127.0.0.1:49800 - "OPTIONS /chat/threads/aee52ef0-79c9-4f2e-8a5d-21f263c37ac5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52595 - "GET /chat/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49800 - "GET /chat/threads/aee52ef0-79c9-4f2e-8a5d-21f263c37ac5 HTTP/1.1" 200 OK

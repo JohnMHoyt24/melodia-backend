@@ -6,5 +6,6 @@ pgvector
 pydantic-settings
 httpx
 pyjwt
+cryptography
 pytest
 respx
