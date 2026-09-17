@@ -5,5 +5,6 @@ psycopg[binary]
 pgvector
 pydantic-settings
 httpx
+pyjwt
 pytest
 respx

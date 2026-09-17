@@ -74,45 +74,74 @@ def test_classify_characteristics_clamps_and_fills_missing(monkeypatch):
 
 
 @respx.mock
-def test_suggest_artists_parses_array(monkeypatch):
+def test_chat_turn_parses_reply_and_artists(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", _settings)
-    suggestions = [
-        {"name": "Yo La Tengo", "reason": "Jangly guitars with a similar dreamy feel."},
-        {"name": "The Feelies", "reason": "Chiming guitar tones in a similar vein."},
-    ]
+    payload = {
+        "reply": "Sure, here are a few jangly picks:",
+        "artists": [
+            {"name": "Yo La Tengo", "reason": "Jangly guitars with a similar dreamy feel."},
+            {"name": "The Feelies", "reason": "Chiming guitar tones in a similar vein."},
+        ],
+    }
     respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
         return_value=Response(
             200,
-            json={"candidates": [{"content": {"parts": [{"text": json.dumps(suggestions)}]}}]},
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]},
         )
     )
 
-    result = gemini.suggest_artists("like Dinosaur Jr but janglier", count=5)
+    result = gemini.chat_turn([], "like Dinosaur Jr but janglier", count=5)
 
-    assert result == suggestions
+    assert result == payload
 
 
 @respx.mock
-def test_suggest_artists_truncates_to_count(monkeypatch):
+def test_chat_turn_sends_history_as_alternating_roles(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", _settings)
-    suggestions = [{"name": f"Artist {i}", "reason": "reason"} for i in range(5)]
-    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
+    payload = {"reply": "It's more mellow than the others.", "artists": []}
+    route = respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
         return_value=Response(
             200,
-            json={"candidates": [{"content": {"parts": [{"text": json.dumps(suggestions)}]}}]},
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]},
         )
     )
 
-    result = gemini.suggest_artists("anything", count=2)
+    history = [
+        {"role": "user", "content": "like Dinosaur Jr but janglier"},
+        {"role": "assistant", "content": "Sure, here are a few jangly picks:"},
+    ]
+    result = gemini.chat_turn(history, "why the first one?")
 
-    assert len(result) == 2
+    assert result == payload
+    sent_contents = json.loads(route.calls[0].request.content)["contents"]
+    assert [c["role"] for c in sent_contents] == ["user", "model", "user"]
+    assert sent_contents[-1]["parts"][0]["text"] == "why the first one?"
 
 
-def test_suggest_artists_without_api_key_raises(monkeypatch):
+@respx.mock
+def test_chat_turn_truncates_artists_to_count(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    payload = {
+        "reply": "Here you go:",
+        "artists": [{"name": f"Artist {i}", "reason": "reason"} for i in range(5)],
+    }
+    respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
+        return_value=Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]},
+        )
+    )
+
+    result = gemini.chat_turn([], "anything", count=2)
+
+    assert len(result["artists"]) == 2
+
+
+def test_chat_turn_without_api_key_raises(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", lambda: _settings(gemini_api_key=""))
 
     with pytest.raises(gemini.GeminiNotConfigured):
-        gemini.suggest_artists("anything")
+        gemini.chat_turn([], "anything")
 
 
 @respx.mock

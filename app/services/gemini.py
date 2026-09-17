@@ -1,10 +1,12 @@
 """Thin client for the Gemini API (https://ai.google.dev/api).
 
-Free tier. Used for two things:
+Free tier. Used for three things:
 - `classify_characteristics`: structured-output text generation that scores an artist
   on a fixed vocabulary of characteristics (see app/core/constants.py), based on their
   name + genre tags rather than audio analysis (which Spotify no longer offers for
   free - see PLAN.md).
+- `chat_turn`: one structured-output call per conversational turn that both replies to
+  the user and, when warranted, suggests real artists - see app/services/chat.py.
 - `embed_text`: turns a short text summary of an artist into a vector for pgvector
   similarity search.
 """
@@ -118,51 +120,86 @@ def classify_characteristics(artist_name: str, genres: list[str]) -> dict[str, f
     }
 
 
-def suggest_artists(prompt: str, count: int = 5) -> list[dict[str, str]]:
-    """Return up to `count` real-artist suggestions as [{"name": str, "reason": str}]
+_MAX_HISTORY_MESSAGES = 20
 
-    for a free-text discovery prompt (e.g. "like Dinosaur Jr but with more jangly
-    guitars"). Leans on Gemini's own trained music knowledge rather than a fixed local
-    catalog - callers are expected to verify each name against a real source (see
-    app/services/recommend.py, which uses MusicBrainz via ingest_artist) since Gemini
-    can hallucinate a name that doesn't exist.
+_CHAT_SYSTEM_INSTRUCTIONS = (
+    "You are Melodia, a knowledgeable, conversational music recommender chatting with "
+    "a user across multiple turns. Keep using earlier turns as context - if the user "
+    "asks a follow-up ('more like the first one', 'why that one?', 'less mellow'), "
+    "answer with that context in mind rather than starting over.\n\n"
+    "Always write a short, conversational `reply` to the user.\n"
+    "Only when the turn actually calls for new recommendations, also fill `artists` "
+    "with up to {count} real, existing artists that fit - never made-up names - each "
+    "with a one-sentence reason tied to what the user asked for. Leave `artists` empty "
+    "for turns that are just conversation, clarification, or commentary on artists "
+    "already suggested, rather than a request for something new."
+)
+
+
+def chat_turn(
+    history: list[dict[str, str]], message: str, count: int = 5
+) -> dict[str, Any]:
+    """Run one conversational turn: one Gemini call that can both chat and, when the
+
+    turn calls for it, suggest real artists - replaces the old single-purpose
+    `suggest_artists`. Returns {"reply": str, "artists": [{"name", "reason"}, ...]}.
+
+    `history` is prior turns as [{"role": "user"|"assistant", "content": str}, ...],
+    oldest first; only the last `_MAX_HISTORY_MESSAGES` are sent to bound prompt size.
+    Callers are expected to verify each suggested name against a real source (see
+    app/services/chat.py, which uses MusicBrainz via ingest_artist) since Gemini can
+    hallucinate a name that doesn't exist. Still exactly one Gemini call per turn,
+    regardless of history length - see PLAN.md for why that constraint matters on the
+    free tier.
     """
     api_key = _require_api_key()
     settings = get_settings()
 
-    instructions = (
-        "You are a knowledgeable music recommender. A user will describe what they "
-        f"want in free text. Suggest up to {count} real, existing artists that fit - "
-        "not made-up names. For each, give a one-sentence reason tied to what the user "
-        "asked for.\n\n"
-        f"User request: {prompt}\n"
-    )
+    contents = [
+        {
+            "role": "user" if turn["role"] == "user" else "model",
+            "parts": [{"text": turn["content"]}],
+        }
+        for turn in history[-_MAX_HISTORY_MESSAGES:]
+    ]
+    contents.append({"role": "user", "parts": [{"text": message}]})
 
     data = _post(
         f"{BASE_URL}/models/{settings.gemini_generation_model}:generateContent",
         api_key,
         {
-            "contents": [{"parts": [{"text": instructions}]}],
+            "systemInstruction": {
+                "parts": [{"text": _CHAT_SYSTEM_INSTRUCTIONS.format(count=count)}]
+            },
+            "contents": contents,
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "name": {"type": "STRING"},
-                            "reason": {"type": "STRING"},
+                    "type": "OBJECT",
+                    "properties": {
+                        "reply": {"type": "STRING"},
+                        "artists": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "name": {"type": "STRING"},
+                                    "reason": {"type": "STRING"},
+                                },
+                                "required": ["name", "reason"],
+                            },
                         },
-                        "required": ["name", "reason"],
                     },
+                    "required": ["reply", "artists"],
                 },
             },
         },
     )
 
     text = data["candidates"][0]["content"]["parts"][0]["text"]
-    suggestions: list[dict[str, str]] = json.loads(text)
-    return suggestions[:count]
+    result: dict[str, Any] = json.loads(text)
+    result["artists"] = result.get("artists", [])[:count]
+    return result
 
 
 def embed_text(text: str) -> list[float]:

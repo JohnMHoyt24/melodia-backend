@@ -1,4 +1,5 @@
 import os
+import uuid
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
@@ -8,8 +9,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.auth import get_current_user_id
 from app.core.db import Base, get_db
 from app.main import app
+
+TEST_USER_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 
 
 @pytest.fixture
@@ -40,3 +44,12 @@ def db_session():
 @pytest.fixture
 def client(db_session):
     yield TestClient(app)
+
+
+@pytest.fixture
+def authed_client(client):
+    app.dependency_overrides[get_current_user_id] = lambda: TEST_USER_ID
+    try:
+        yield client
+    finally:
+        del app.dependency_overrides[get_current_user_id]
