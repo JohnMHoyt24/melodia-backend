@@ -6,12 +6,16 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.models.artist import Artist
 from app.schemas.artist import (
+    AnalysisStatus,
     ArtistCreate,
     ArtistDetail,
     ArtistIngestRequest,
     ArtistRead,
+    AskRequest,
+    AskResponse,
     SimilarArtist,
 )
+from app.services import analysis_queue, rag
 from app.services.analyze import analyze_artist
 from app.services.gemini import GeminiNotConfigured
 from app.services.ingest import ArtistNotFound, ingest_album_shells, ingest_artist
@@ -34,6 +38,23 @@ def create_artist(payload: ArtistCreate, db: Session = Depends(get_db)) -> Artis
     return artist
 
 
+@router.post("/ask", response_model=AskResponse)
+def ask(payload: AskRequest, db: Session = Depends(get_db)) -> AskResponse:
+    """RAG: answer a free-text question grounded in the analyzed artists most relevant
+    to it - see app/services/rag.py."""
+    try:
+        result = rag.ask(db, payload.question, limit=payload.limit)
+    except GeminiNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return AskResponse(
+        answer=result.answer,
+        sources=[
+            SimilarArtist(id=a.id, name=a.name, similarity=similarity)
+            for a, similarity in result.sources
+        ],
+    )
+
+
 @router.post("/ingest", response_model=ArtistDetail)
 def ingest(payload: ArtistIngestRequest, db: Session = Depends(get_db)) -> Artist:
     """Fetch an artist from MusicBrainz (+ Last.fm tags), upsert into the DB.
@@ -42,9 +63,11 @@ def ingest(payload: ArtistIngestRequest, db: Session = Depends(get_db)) -> Artis
     album for tracks) - see app/services/ingest.py.
     """
     try:
-        return ingest_artist(db, payload.name, album_limit=payload.album_limit)
+        artist = ingest_artist(db, payload.name, album_limit=payload.album_limit)
     except ArtistNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    analysis_queue.maybe_enqueue(artist)
+    return artist
 
 
 @router.get("/{artist_id}", response_model=ArtistDetail)
@@ -102,3 +125,32 @@ def similar(
         SimilarArtist(id=other.id, name=other.name, similarity=similarity)
         for other, similarity in results
     ]
+
+
+def _analysis_status(artist: Artist) -> AnalysisStatus:
+    if artist.embedding is not None:
+        return AnalysisStatus(status="done")
+    status, error = analysis_queue.in_flight_status(artist.id)
+    return AnalysisStatus(status=status or "idle", error=error)
+
+
+@router.get("/{artist_id}/analysis", response_model=AnalysisStatus)
+def analysis_status(artist_id: uuid.UUID, db: Session = Depends(get_db)) -> AnalysisStatus:
+    artist = db.get(Artist, artist_id)
+    if artist is None:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    return _analysis_status(artist)
+
+
+@router.post("/{artist_id}/analysis", response_model=AnalysisStatus, status_code=202)
+def request_analysis(artist_id: uuid.UUID, db: Session = Depends(get_db)) -> AnalysisStatus:
+    """Queue background analysis (retrying a failed one); poll GET for the outcome.
+
+    Unlike POST /{id}/analyze this returns immediately - see app/services/analysis_queue.py.
+    """
+    artist = db.get(Artist, artist_id)
+    if artist is None:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    if artist.embedding is None:
+        analysis_queue.enqueue(artist.id)
+    return _analysis_status(artist)

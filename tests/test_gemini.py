@@ -119,6 +119,23 @@ def test_chat_turn_sends_history_as_alternating_roles(monkeypatch):
 
 
 @respx.mock
+def test_chat_turn_includes_library_context_in_system_instruction(monkeypatch):
+    monkeypatch.setattr(gemini, "get_settings", _settings)
+    payload = {"reply": "From your library.", "artists": []}
+    route = respx.post(f"{gemini.BASE_URL}/models/gemini-flash-latest:generateContent").mock(
+        return_value=Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]},
+        )
+    )
+
+    gemini.chat_turn([], "mellow", context="- Boards of Canada - genres: idm")
+
+    system_text = json.loads(route.calls[0].request.content)["systemInstruction"]["parts"][0]["text"]
+    assert "Boards of Canada" in system_text
+
+
+@respx.mock
 def test_chat_turn_truncates_artists_to_count(monkeypatch):
     monkeypatch.setattr(gemini, "get_settings", _settings)
     payload = {

@@ -2,6 +2,9 @@ import os
 import uuid
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+# Never spawn the background analysis worker (real Gemini calls) from ingest paths in tests.
+os.environ.setdefault("AUTO_ANALYZE", "false")
+os.environ.setdefault("ANALYSIS_DELAY_SECONDS", "0")
 
 import pytest
 from fastapi.testclient import TestClient

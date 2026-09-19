@@ -41,6 +41,9 @@ class ChatMessage(Base):
     # the old RecommendedArtist schema. Null for user messages and assistant turns that
     # didn't suggest anything new.
     recommended_artists: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # Library artists retrieved (RAG) as context for this assistant turn, e.g.
+    # [{"id": "...", "name": "...", "similarity": 0.83}] - shown as source chips.
+    sources: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -15,6 +15,12 @@ class RecommendedArtistOut(BaseModel):
     reason: str
 
 
+class ChatSourceOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    similarity: float
+
+
 class ChatMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,6 +28,7 @@ class ChatMessageRead(BaseModel):
     role: str
     content: str
     recommended_artists: list[RecommendedArtistOut] | None
+    sources: list[ChatSourceOut] | None = None
     created_at: datetime
 
 

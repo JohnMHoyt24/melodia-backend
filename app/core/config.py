@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # needs the public key, not a secret.
     supabase_url: str = ""
 
+    # Analyze newly ingested artists in the background (app/services/analysis_queue.py).
+    # Costs 2 Gemini calls per artist, so turn it off if the free-tier quota is tight.
+    auto_analyze: bool = True
+    analysis_delay_seconds: float = 2.0
+
     gemini_api_key: str = ""
     # gemini-flash-latest (-> gemini-3.8-flash as of writing) has a 20 requests/day free-tier
     # cap - hit it live during Milestone 3 testing. gemini-flash-lite-latest has more free-tier

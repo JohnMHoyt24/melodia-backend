@@ -137,7 +137,10 @@ _CHAT_SYSTEM_INSTRUCTIONS = (
 
 
 def chat_turn(
-    history: list[dict[str, str]], message: str, count: int = 5
+    history: list[dict[str, str]],
+    message: str,
+    count: int = 5,
+    context: str | None = None,
 ) -> dict[str, Any]:
     """Run one conversational turn: one Gemini call that can both chat and, when the
 
@@ -150,10 +153,24 @@ def chat_turn(
     app/services/chat.py, which uses MusicBrainz via ingest_artist) since Gemini can
     hallucinate a name that doesn't exist. Still exactly one Gemini call per turn,
     regardless of history length - see PLAN.md for why that constraint matters on the
-    free tier.
+    free tier (retrieval in app/services/rag.py adds one embedding call on top).
+
+    `context` is an optional block describing analyzed library artists retrieved for
+    this turn; when present the model is told to prefer them, which keeps
+    recommendations grounded in what Melodia actually knows about.
     """
     api_key = _require_api_key()
     settings = get_settings()
+
+    system_text = _CHAT_SYSTEM_INSTRUCTIONS.format(count=count)
+    if context:
+        system_text += (
+            "\n\nArtists in the user's Melodia library that are relevant to this "
+            "conversation (with genres and 0.0-1.0 characteristic scores):\n"
+            f"{context}\n"
+            "Prefer these when they fit the request and say so; you may still suggest "
+            "other real artists when they fit better."
+        )
 
     contents = [
         {
@@ -168,9 +185,7 @@ def chat_turn(
         f"{BASE_URL}/models/{settings.gemini_generation_model}:generateContent",
         api_key,
         {
-            "systemInstruction": {
-                "parts": [{"text": _CHAT_SYSTEM_INSTRUCTIONS.format(count=count)}]
-            },
+            "systemInstruction": {"parts": [{"text": system_text}]},
             "contents": contents,
             "generationConfig": {
                 "responseMimeType": "application/json",
@@ -200,6 +215,43 @@ def chat_turn(
     result: dict[str, Any] = json.loads(text)
     result["artists"] = result.get("artists", [])[:count]
     return result
+
+
+_RAG_SYSTEM_INSTRUCTIONS = (
+    "You are Melodia, a music assistant. Answer the user's question using ONLY the "
+    "artists in the provided context - their genres and 0.0-1.0 characteristic scores "
+    "(energy, valence, melody, aggression, danceability, complexity). Do not recommend "
+    "or mention artists that are not in the context. If the context doesn't contain "
+    "anything relevant, say so plainly instead of guessing. Keep the answer short and "
+    "conversational."
+)
+
+
+def answer_with_context(question: str, context: str) -> str:
+    """Generation step of RAG: answer `question` grounded in retrieved `context`.
+
+    One plain-text Gemini call - see app/services/rag.py for retrieval and prompt
+    assembly.
+    """
+    api_key = _require_api_key()
+    settings = get_settings()
+
+    data = _post(
+        f"{BASE_URL}/models/{settings.gemini_generation_model}:generateContent",
+        api_key,
+        {
+            "systemInstruction": {"parts": [{"text": _RAG_SYSTEM_INSTRUCTIONS}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": f"Context:\n{context}\n\nQuestion: {question}"}
+                    ],
+                }
+            ],
+        },
+    )
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
 def embed_text(text: str) -> list[float]:
