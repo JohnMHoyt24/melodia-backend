@@ -16,12 +16,13 @@ from app.models.user_artist import UserArtist
 from app.schemas.artist import SimilarArtist
 from app.schemas.library import LibraryArtist
 from app.services import analysis_queue
+from app.services.covers import artist_cover_urls
 from app.services.similarity import ArtistNotAnalyzed, find_similar_artists
 
 router = APIRouter(prefix="/library", tags=["library"])
 
 
-def _to_schema(entry: UserArtist) -> LibraryArtist:
+def _to_schema(entry: UserArtist, covers: dict[uuid.UUID, str]) -> LibraryArtist:
     artist = entry.artist
     return LibraryArtist(
         id=artist.id,
@@ -29,6 +30,7 @@ def _to_schema(entry: UserArtist) -> LibraryArtist:
         genres=[genre.name for genre in artist.genres],
         characteristics=artist.characteristics,
         added_at=entry.added_at,
+        cover_url=covers.get(artist.id),
     )
 
 
@@ -42,7 +44,8 @@ def list_library(
         .order_by(UserArtist.added_at.desc())
         .all()
     )
-    return [_to_schema(entry) for entry in entries]
+    covers = artist_cover_urls(db, (entry.artist_id for entry in entries))
+    return [_to_schema(entry, covers) for entry in entries]
 
 
 @router.put("/{artist_id}", response_model=LibraryArtist)
@@ -64,7 +67,7 @@ def add_to_library(
         db.refresh(entry)
     # Only analyzed artists can show up in similarity/grounding, so make sure it gets analyzed.
     analysis_queue.maybe_enqueue(artist)
-    return _to_schema(entry)
+    return _to_schema(entry, artist_cover_urls(db, [artist_id]))
 
 
 @router.delete("/{artist_id}", status_code=204)
@@ -94,7 +97,10 @@ def similar_in_library(
         results = find_similar_artists(db, artist, limit=limit, user_id=user_id)
     except ArtistNotAnalyzed as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    covers = artist_cover_urls(db, (other.id for other, _ in results))
     return [
-        SimilarArtist(id=other.id, name=other.name, similarity=similarity)
+        SimilarArtist(
+            id=other.id, name=other.name, similarity=similarity, cover_url=covers.get(other.id)
+        )
         for other, similarity in results
     ]

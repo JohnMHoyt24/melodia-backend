@@ -8,17 +8,21 @@ class ChatMessageCreate(BaseModel):
     message: str
 
 
+# cover_url isn't stored with the message: albums (and so covers) can arrive after the
+# message was written, so app/api/chat.py fills it in at read time.
 class RecommendedArtistOut(BaseModel):
     id: uuid.UUID
     name: str
     genres: list[str]
     reason: str
+    cover_url: str | None = None
 
 
 class ChatSourceOut(BaseModel):
     id: uuid.UUID
     name: str
     similarity: float
+    cover_url: str | None = None
 
 
 class ChatMessageRead(BaseModel):

@@ -4,6 +4,7 @@ No auth required, but MusicBrainz asks anonymous clients to stick to ~1 request/
 and to send a descriptive User-Agent - both handled here.
 """
 
+import threading
 import time
 from typing import Any
 
@@ -16,14 +17,17 @@ _MIN_INTERVAL_SECONDS = 1.0
 _MAX_RETRIES = 5
 
 _last_request_at: float = 0.0
+# Request handlers and the background analysis worker both call MusicBrainz.
+_throttle_lock = threading.Lock()
 
 
 def _throttle() -> None:
     global _last_request_at
-    elapsed = time.monotonic() - _last_request_at
-    if elapsed < _MIN_INTERVAL_SECONDS:
-        time.sleep(_MIN_INTERVAL_SECONDS - elapsed)
-    _last_request_at = time.monotonic()
+    with _throttle_lock:
+        elapsed = time.monotonic() - _last_request_at
+        if elapsed < _MIN_INTERVAL_SECONDS:
+            time.sleep(_MIN_INTERVAL_SECONDS - elapsed)
+        _last_request_at = time.monotonic()
 
 
 def _get(path: str, params: dict[str, Any]) -> dict[str, Any]:

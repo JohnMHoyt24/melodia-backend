@@ -1,5 +1,7 @@
 """In-process background queue that analyzes artists one at a time.
 
+Each job also fetches the artist's album list if it has none (see _fetch_album_shells).
+
 Analysis is two Gemini calls per artist (app/services/analyze.py) against a small
 free-tier quota, so it can't run inline in a request or fan out in parallel. A single
 worker thread drains a FIFO queue with a pause between jobs, which keeps us under the
@@ -17,10 +19,14 @@ import threading
 import time
 import uuid
 
+import httpx
+from sqlalchemy.orm import Session
+
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.artist import Artist
 from app.services.analyze import analyze_artist
+from app.services.ingest import ArtistNotFound, ingest_album_shells
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +37,27 @@ _errors: dict[uuid.UUID, str] = {}
 _worker: threading.Thread | None = None
 
 
+def _fetch_album_shells(db: Session, artist: Artist) -> None:
+    """Artists found through chat are ingested without albums to keep replies fast; pull
+    the album list (one MusicBrainz call) here instead, which also gives them cover art.
+
+    Best-effort: a MusicBrainz failure must not block analysis.
+    """
+    if artist.albums or not artist.musicbrainz_id:
+        return
+    try:
+        ingest_album_shells(db, artist)
+    except (httpx.HTTPError, ArtistNotFound):
+        db.rollback()
+        logger.warning("album fetch failed for artist %s", artist.id, exc_info=True)
+
+
 def _process(artist_id: uuid.UUID) -> None:
     with SessionLocal() as db:
         artist = db.get(Artist, artist_id)
         if artist is None or artist.embedding is not None:
             return
+        _fetch_album_shells(db, artist)
         analyze_artist(db, artist)
 
 

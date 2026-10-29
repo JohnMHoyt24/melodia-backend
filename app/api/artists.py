@@ -17,6 +17,7 @@ from app.schemas.artist import (
 )
 from app.services import analysis_queue, rag
 from app.services.analyze import analyze_artist
+from app.services.covers import artist_cover_urls
 from app.services.gemini import GeminiNotConfigured
 from app.services.ingest import ArtistNotFound, ingest_album_shells, ingest_artist
 from app.services.similarity import ArtistNotAnalyzed, find_similar_artists
@@ -121,8 +122,11 @@ def similar(
         results = find_similar_artists(db, artist, limit=limit)
     except ArtistNotAnalyzed as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    covers = artist_cover_urls(db, (other.id for other, _ in results))
     return [
-        SimilarArtist(id=other.id, name=other.name, similarity=similarity)
+        SimilarArtist(
+            id=other.id, name=other.name, similarity=similarity, cover_url=covers.get(other.id)
+        )
         for other, similarity in results
     ]
 

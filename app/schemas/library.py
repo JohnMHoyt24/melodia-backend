@@ -10,3 +10,4 @@ class LibraryArtist(BaseModel):
     genres: list[str]
     characteristics: dict[str, float] | None
     added_at: datetime
+    cover_url: str | None = None

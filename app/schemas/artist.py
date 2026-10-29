@@ -1,10 +1,11 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from app.schemas.album import AlbumRead
 from app.schemas.genre import GenreRead
+from app.services.covers import cover_art_url, earliest_album_mbid
 
 
 class ArtistCreate(BaseModel):
@@ -31,11 +32,19 @@ class ArtistDetail(ArtistRead):
     albums: list[AlbumRead] = []
     characteristics: dict[str, float] | None = None
 
+    @computed_field
+    @property
+    def cover_url(self) -> str | None:
+        """Larger than list thumbnails: the artist page shows it as its hero image."""
+        mbid = earliest_album_mbid((a.musicbrainz_id, a.first_release_date) for a in self.albums)
+        return cover_art_url(mbid, size=500)
+
 
 class SimilarArtist(BaseModel):
     id: uuid.UUID
     name: str
     similarity: float
+    cover_url: str | None = None
 
 
 class AskRequest(BaseModel):
