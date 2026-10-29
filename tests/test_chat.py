@@ -61,6 +61,7 @@ def test_start_thread_endpoint(authed_client, db_session, monkeypatch):
             "name": "Yo La Tengo",
             "genres": ["indie rock"],
             "reason": "Jangly guitars.",
+            "cover_url": None,
         }
     ]
 
@@ -200,7 +201,12 @@ def test_chat_turn_is_grounded_in_retrieved_library_artists(authed_client, db_se
     assistant = response.json()["messages"][1]
     assert "Boards of Canada" in seen["context"]
     assert assistant["sources"] == [
-        {"id": str(library_artist.id), "name": "Boards of Canada", "similarity": 0.91}
+        {
+            "id": str(library_artist.id),
+            "name": "Boards of Canada",
+            "similarity": 0.91,
+            "cover_url": None,
+        }
     ]
 
 

@@ -208,7 +208,9 @@ def test_similar_artists(client, db_session, monkeypatch):
     response = client.get(f"/artists/{artist.id}/similar")
 
     assert response.status_code == 200
-    assert response.json() == [{"id": str(other.id), "name": "Autechre", "similarity": 0.92}]
+    assert response.json() == [
+        {"id": str(other.id), "name": "Autechre", "similarity": 0.92, "cover_url": None}
+    ]
 
 
 def test_similar_artists_not_analyzed(client, db_session):

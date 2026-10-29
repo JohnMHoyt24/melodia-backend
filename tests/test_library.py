@@ -78,7 +78,7 @@ def test_similar_in_library_is_scoped_to_caller(authed_client, db_session, monke
 
     assert response.status_code == 200
     assert response.json() == [
-        {"id": str(neighbour.id), "name": "Autechre", "similarity": 0.8}
+        {"id": str(neighbour.id), "name": "Autechre", "similarity": 0.8, "cover_url": None}
     ]
     assert seen["user_id"] == TEST_USER_ID
     assert seen["limit"] == 6
